@@ -2,6 +2,7 @@ import scipy.misc
 import numpy as np
 import os
 from glob import glob
+import imageio
 
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
@@ -9,16 +10,32 @@ from keras.datasets import cifar10, mnist
 
 class ImageData:
 
-    def __init__(self, load_size, channels):
+    def __init__(self, load_size, channels, crop_pos='center'):
         self.load_size = load_size
         self.channels = channels
+        self.crop_pos = crop_pos
 
     def image_processing(self, filename):
-        x = tf.read_file(filename)
+        x = tf.io.read_file(filename)
         x_decode = tf.image.decode_jpeg(x, channels=self.channels)
-        img = tf.image.resize_images(x_decode, [self.load_size, self.load_size])
+        s = tf.shape(x_decode)
+        w, h = s[0], s[1]
+        # height, width, channel = x_decode.eval(session=self.sess).shape
+        c = tf.minimum(w, h)
+        zoom_factor = 0.15
+        c_ = tf.cast(tf.cast(c, dtype=tf.float32) * (1 - tf.random.uniform(shape=[])*zoom_factor), dtype=tf.int32)
+        if self.crop_pos == 'random':
+            print('crop random')
+            k = tf.random.uniform(shape=[])
+            l = tf.random.uniform(shape=[])
+            w_start = tf.cast(tf.cast((w - c_), dtype=tf.float32) * k, dtype=tf.int32)
+            h_start = tf.cast(tf.cast((h - c_), dtype=tf.float32) * l, dtype=tf.int32)
+        else:
+            w_start = (w - c_) // 2
+            h_start = (h - c_) // 2
+        img = x_decode[w_start:w_start + c_, h_start:h_start + c_]
+        img = tf.image.resize_images(img, [self.load_size, self.load_size])
         img = tf.cast(img, tf.float32) / 127.5 - 1
-
         return img
 
 
@@ -60,13 +77,11 @@ def load_cifar10(size=64) :
     return x
 
 def load_data(dataset_name, size=64) :
-    if dataset_name == 'mnist' :
-        x = load_mnist(size)
-    elif dataset_name == 'cifar10' :
-        x = load_cifar10(size)
-    else :
 
-        x = glob(os.path.join("./dataset", dataset_name, '*.*'))
+    x = glob(f'{dataset_name}/*/*.jpg')
+    x.extend(glob(f'{dataset_name}/*.jpg'))
+    x.extend(glob(f'{dataset_name}/*/*.png'))
+    x.extend(glob(f'{dataset_name}/*.png'))
 
     return x
 
@@ -82,6 +97,9 @@ def normalize(x) :
 
 def save_images(images, size, image_path):
     return imsave(inverse_transform(images), size, image_path)
+
+def save_images_plt(images, size, image_path):
+    pass
 
 def merge(images, size):
     h, w = images.shape[1], images.shape[2]
@@ -105,7 +123,7 @@ def merge(images, size):
 
 def imsave(images, size, path):
     # image = np.squeeze(merge(images, size)) # 채널이 1인거 제거 ?
-    return scipy.misc.imsave(path, merge(images, size))
+    return imageio.imwrite(path, merge(images, size))
 
 
 def inverse_transform(images):
@@ -118,7 +136,7 @@ def check_folder(log_dir):
     return log_dir
 
 def show_all_variables():
-    model_vars = tf.trainable_variables()
+    model_vars = tf.compat.v1.trainable_variables()
     slim.model_analyzer.analyze_vars(model_vars, print_info=True)
 
 def str2bool(x):

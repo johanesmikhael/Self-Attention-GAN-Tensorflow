@@ -2,6 +2,7 @@ import time
 from ops import *
 from utils import *
 from tensorflow.contrib.data import prefetch_to_device, shuffle_and_repeat, map_and_batch
+from glob import glob
 
 class SAGAN(object):
 
@@ -34,6 +35,9 @@ class SAGAN(object):
 
         self.sample_num = args.sample_num  # number of generated images to be saved
         self.test_num = args.test_num
+
+        """ Augmentation """
+        self.crop_pos = args.crop_pos
 
 
         # train
@@ -90,7 +94,7 @@ class SAGAN(object):
     ##################################################################################
 
     def generator(self, z, is_training=True, reuse=False):
-        with tf.variable_scope("generator", reuse=reuse):
+        with tf.compat.v1.variable_scope("generator", reuse=reuse):
             ch = 1024
             x = fully_connected(z, units=4 * 4 * ch, sn=self.sn, scope='fc')
             x = tf.reshape(x, [-1, 4, 4, ch])
@@ -120,7 +124,7 @@ class SAGAN(object):
     ##################################################################################
 
     def discriminator(self, x, reuse=False):
-        with tf.variable_scope("discriminator", reuse=reuse):
+        with tf.compat.v1.variable_scope("discriminator", reuse=reuse):
             ch = 64
 
             x = init_down_resblock(x, channels=ch, sn=self.sn, scope='init_resblock')
@@ -147,7 +151,7 @@ class SAGAN(object):
             return x
 
     def attention(self, x, channels, scope='attention'):
-        with tf.variable_scope(scope):
+        with tf.compat.v1.variable_scope(scope):
             f = conv(x, channels // 8, kernel=1, stride=1, sn=self.sn, scope='f_conv') # [bs, h, w, c']
             g = conv(x, channels // 8, kernel=1, stride=1, sn=self.sn, scope='g_conv') # [bs, h, w, c']
             h = conv(x, channels, kernel=1, stride=1, sn=self.sn, scope='h_conv') # [bs, h, w, c]
@@ -158,7 +162,7 @@ class SAGAN(object):
             beta = tf.nn.softmax(s)  # attention map
 
             o = tf.matmul(beta, hw_flatten(h)) # [bs, N, C]
-            gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+            gamma = tf.compat.v1.get_variable("gamma", [1], initializer=tf.compat.v1.constant_initializer(0.0))
 
             o = tf.reshape(o, shape=x.shape) # [bs, h, w, C]
             o = conv(o, channels, kernel=1, stride=1, sn=self.sn, scope='attn_conv')
@@ -168,7 +172,7 @@ class SAGAN(object):
         return x
 
     def google_attention(self, x, channels, scope='attention'):
-        with tf.variable_scope(scope):
+        with tf.compat.v1.variable_scope(scope):
             batch_size, height, width, num_channels = x.get_shape().as_list()
             f = conv(x, channels // 8, kernel=1, stride=1, sn=self.sn, scope='f_conv')  # [bs, h, w, c']
             f = max_pooling(f)
@@ -184,7 +188,7 @@ class SAGAN(object):
             beta = tf.nn.softmax(s)  # attention map
 
             o = tf.matmul(beta, hw_flatten(h))  # [bs, N, C]
-            gamma = tf.get_variable("gamma", [1], initializer=tf.constant_initializer(0.0))
+            gamma = tf.compat.v1.get_variable("gamma", [1], initializer=tf.compat.v1.constant_initializer(0.0))
 
             o = tf.reshape(o, shape=[batch_size, height, width, num_channels // 2])  # [bs, h, w, C]
             o = conv(o, channels, kernel=1, stride=1, sn=self.sn, scope='attn_conv')
@@ -194,35 +198,35 @@ class SAGAN(object):
 
     def gradient_penalty(self, real, fake):
         if self.gan_type == 'dragan' :
-            shape = tf.shape(real)
-            eps = tf.random_uniform(shape=shape, minval=0., maxval=1.)
-            x_mean, x_var = tf.nn.moments(real, axes=[0, 1, 2, 3])
+            shape = tf.shape(input=real)
+            eps = tf.random.uniform(shape=shape, minval=0., maxval=1.)
+            x_mean, x_var = tf.nn.moments(x=real, axes=[0, 1, 2, 3])
             x_std = tf.sqrt(x_var)  # magnitude of noise decides the size of local region
             noise = 0.5 * x_std * eps  # delta in paper
 
             # Author suggested U[0,1] in original paper, but he admitted it is bug in github
             # (https://github.com/kodalinaveen3/DRAGAN). It should be two-sided.
 
-            alpha = tf.random_uniform(shape=[shape[0], 1, 1, 1], minval=-1., maxval=1.)
+            alpha = tf.random.uniform(shape=[shape[0], 1, 1, 1], minval=-1., maxval=1.)
             interpolated = tf.clip_by_value(real + alpha * noise, -1., 1.)  # x_hat should be in the space of X
 
         else :
-            alpha = tf.random_uniform(shape=[self.batch_size, 1, 1, 1], minval=0., maxval=1.)
+            alpha = tf.random.uniform(shape=[self.batch_size, 1, 1, 1], minval=0., maxval=1.)
             interpolated = alpha*real + (1. - alpha)*fake
 
         logit = self.discriminator(interpolated, reuse=True)
 
-        grad = tf.gradients(logit, interpolated)[0]  # gradient of D(interpolated)
-        grad_norm = tf.norm(flatten(grad), axis=1)  # l2 norm
+        grad = tf.gradients(ys=logit, xs=interpolated)[0]  # gradient of D(interpolated)
+        grad_norm = tf.norm(tensor=flatten(grad), axis=1)  # l2 norm
 
         GP = 0
 
         # WGAN - LP
         if self.gan_type == 'wgan-lp':
-            GP = self.ld * tf.reduce_mean(tf.square(tf.maximum(0.0, grad_norm - 1.)))
+            GP = self.ld * tf.reduce_mean(input_tensor=tf.square(tf.maximum(0.0, grad_norm - 1.)))
 
         elif self.gan_type == 'wgan-gp' or self.gan_type == 'dragan':
-            GP = self.ld * tf.reduce_mean(tf.square(grad_norm - 1.))
+            GP = self.ld * tf.reduce_mean(input_tensor=tf.square(grad_norm - 1.))
 
         return GP
 
@@ -234,21 +238,20 @@ class SAGAN(object):
         """ Graph Input """
         # images
         if self.custom_dataset :
-            Image_Data_Class = ImageData(self.img_size, self.c_dim)
+            Image_Data_Class = ImageData(self.img_size, self.c_dim, crop_pos=self.crop_pos)
             inputs = tf.data.Dataset.from_tensor_slices(self.data)
-
             gpu_device = '/gpu:0'
             inputs = inputs.apply(shuffle_and_repeat(self.dataset_num)).apply(map_and_batch(Image_Data_Class.image_processing, self.batch_size, num_parallel_batches=16, drop_remainder=True)).apply(prefetch_to_device(gpu_device, self.batch_size))
 
-            inputs_iterator = inputs.make_one_shot_iterator()
+            inputs_iterator = tf.compat.v1.data.make_one_shot_iterator(inputs)
 
             self.inputs = inputs_iterator.get_next()
 
         else :
-            self.inputs = tf.placeholder(tf.float32, [self.batch_size, self.img_size, self.img_size, self.c_dim], name='real_images')
+            self.inputs = tf.compat.v1.placeholder(tf.float32, [self.batch_size, self.img_size, self.img_size, self.c_dim], name='real_images')
 
         # noises
-        self.z = tf.placeholder(tf.float32, [self.batch_size, 1, 1, self.z_dim], name='z')
+        self.z = tf.compat.v1.placeholder(tf.float32, [self.batch_size, 1, 1, self.z_dim], name='z')
 
         """ Loss Function """
         # output of D for real images
@@ -271,21 +274,21 @@ class SAGAN(object):
 
         """ Training """
         # divide trainable variables into a group for D and a group for G
-        t_vars = tf.trainable_variables()
+        t_vars = tf.compat.v1.trainable_variables()
         d_vars = [var for var in t_vars if 'discriminator' in var.name]
         g_vars = [var for var in t_vars if 'generator' in var.name]
 
         # optimizers
-        self.d_optim = tf.train.AdamOptimizer(self.d_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.d_loss, var_list=d_vars)
-        self.g_optim = tf.train.AdamOptimizer(self.g_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.g_loss, var_list=g_vars)
+        self.d_optim = tf.compat.v1.train.AdamOptimizer(self.d_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.d_loss, var_list=d_vars)
+        self.g_optim = tf.compat.v1.train.AdamOptimizer(self.g_learning_rate, beta1=self.beta1, beta2=self.beta2).minimize(self.g_loss, var_list=g_vars)
 
         """" Testing """
         # for test
         self.fake_images = self.generator(self.z, is_training=False, reuse=True)
 
         """ Summary """
-        self.d_sum = tf.summary.scalar("d_loss", self.d_loss)
-        self.g_sum = tf.summary.scalar("g_loss", self.g_loss)
+        self.d_sum = tf.compat.v1.summary.scalar("d_loss", self.d_loss)
+        self.g_sum = tf.compat.v1.summary.scalar("g_loss", self.g_loss)
 
     ##################################################################################
     # Train
@@ -293,19 +296,22 @@ class SAGAN(object):
 
     def train(self):
         # initialize all variables
-        tf.global_variables_initializer().run()
+        tf.compat.v1.global_variables_initializer().run()
 
         # graph inputs for visualize training results
-        self.sample_z = np.random.uniform(-1, 1, size=(self.batch_size, 1, 1, self.z_dim))
+        sample_num_rounded = int(np.ceil(self.sample_num/self.batch_size))
+        self.sample_z = []
+        for i in range(sample_num_rounded):
+            self.sample_z.append(np.random.uniform(-1, 1, size=(self.batch_size, 1, 1, self.z_dim)))
 
         # saver to save model
-        self.saver = tf.train.Saver()
+        self.saver = tf.compat.v1.train.Saver()
 
         # summary writer
-        self.writer = tf.summary.FileWriter(self.log_dir + '/' + self.model_dir, self.sess.graph)
+        self.writer = tf.compat.v1.summary.FileWriter(self.log_dir + '/' + self.model_dir, self.sess.graph)
 
         # restore check-point if it exits
-        could_load, checkpoint_counter = self.load(self.checkpoint_dir)
+        could_load, checkpoint_counter = self.load_models(self.checkpoint_dir)
         if could_load:
             start_epoch = (int)(checkpoint_counter / self.iteration)
             start_batch_id = checkpoint_counter - start_epoch * self.iteration
@@ -361,13 +367,21 @@ class SAGAN(object):
 
                 # save training results for every 300 steps
                 if np.mod(idx+1, self.print_freq) == 0:
-                    samples = self.sess.run(self.fake_images, feed_dict={self.z: self.sample_z})
-                    tot_num_samples = min(self.sample_num, self.batch_size)
+                    sample_list = []
+                    for sample_z in self.sample_z:
+                        sample = self.sess.run(self.fake_images, feed_dict={self.z: sample_z})
+                        sample_list.append(sample)
+                    if len(sample_list) == 1:
+                        samples = sample
+                    else:
+                        samples = np.concatenate(sample_list)
+                    # tot_num_samples = min(self.sample_num, self.batch_size)
+                    tot_num_samples = self.sample_num
                     manifold_h = int(np.floor(np.sqrt(tot_num_samples)))
                     manifold_w = int(np.floor(np.sqrt(tot_num_samples)))
                     save_images(samples[:manifold_h * manifold_w, :, :, :],
                                 [manifold_h, manifold_w],
-                                './' + self.sample_dir + '/' + self.model_name + '_train_{:02d}_{:05d}.png'.format(epoch, idx+1))
+                                self.sample_dir + '/' + self.model_name + '_train_{:02d}_{:05d}.png'.format(epoch, idx+1))
 
                 if np.mod(idx+1, self.save_freq) == 0:
                     self.save(self.checkpoint_dir, counter)
@@ -387,8 +401,9 @@ class SAGAN(object):
 
     @property
     def model_dir(self):
+        dataset_name = self.dataset_name.split('/')[-1]
         return "{}_{}_{}_{}_{}_{}".format(
-            self.model_name, self.dataset_name, self.gan_type, self.img_size, self.z_dim, self.sn)
+            self.model_name, dataset_name, self.gan_type, self.img_size, self.z_dim, self.sn)
 
     def save(self, checkpoint_dir, step):
         checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
@@ -398,6 +413,31 @@ class SAGAN(object):
 
         self.saver.save(self.sess, os.path.join(checkpoint_dir, self.model_name+'.model'), global_step=step)
 
+    def load_models(self, checkpoint_dir):
+        import re
+        checkpoint_dir = os.path.join(checkpoint_dir, self.model_dir)
+        models = glob(f'{checkpoint_dir}/*.meta')
+        model_names = []
+        if len(models) > 0:
+            for i, model in enumerate(models):
+                model_name = '.'.join(os.path.basename(model).split('.')[:-1])
+                model_names.append(model_name)
+                print(f'[{i}] {model_name}')
+            selected_index = -1
+            while not selected_index in range(i+1):
+                try:
+                    selected_index = int(input('select model to load: '))
+                except:
+                    print('select the model with model index')
+            print( model_names[selected_index])
+            self.saver.restore(self.sess, os.path.join(checkpoint_dir, model_names[selected_index]))
+            counter = int(next(re.finditer("(\d+)(?!.*\d)",model_names[selected_index])).group(0))
+
+            return True, counter
+        else:
+            print(" [*] Failed to find a checkpoint")
+            return False, 0
+
     def load(self, checkpoint_dir):
         import re
         print(" [*] Reading checkpoints...")
@@ -406,6 +446,7 @@ class SAGAN(object):
         ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
         if ckpt and ckpt.model_checkpoint_path:
             ckpt_name = os.path.basename(ckpt.model_checkpoint_path)
+            print(ckpt_name)
             self.saver.restore(self.sess, os.path.join(checkpoint_dir, ckpt_name))
             counter = int(next(re.finditer("(\d+)(?!.*\d)",ckpt_name)).group(0))
             print(" [*] Success to read {}".format(ckpt_name))
@@ -428,10 +469,10 @@ class SAGAN(object):
                     self.sample_dir + '/' + self.model_name + '_epoch%02d' % epoch + '_visualize.png')
 
     def test(self):
-        tf.global_variables_initializer().run()
+        tf.compat.v1.global_variables_initializer().run()
 
-        self.saver = tf.train.Saver()
-        could_load, checkpoint_counter = self.load(self.checkpoint_dir)
+        self.saver = tf.compat.v1.train.Saver()
+        could_load, checkpoint_counter = self.load_models(self.checkpoint_dir)
         result_dir = os.path.join(self.result_dir, self.model_dir)
         check_folder(result_dir)
 
@@ -446,10 +487,24 @@ class SAGAN(object):
         """ random condition, random noise """
 
         for i in range(self.test_num) :
-            z_sample = np.random.uniform(-1, 1, size=(self.batch_size, 1, 1, self.z_dim))
+            sample_num_rounded = int(np.ceil(self.sample_num/self.batch_size))
+            z_samples = []
+            for j in range(sample_num_rounded):
+                z_samples.append(np.random.uniform(-1, 1, size=(self.batch_size, 1, 1, self.z_dim)))
 
-            samples = self.sess.run(self.fake_images, feed_dict={self.z: z_sample})
+            sample_list = []
+            for z_sample in z_samples:
+                sample = self.sess.run(self.fake_images, feed_dict={self.z: z_sample})
+                sample_list.append(sample)
+            if len(sample_list) == 1:
+                samples = sample
+            else:
+                samples = np.concatenate(sample_list)
 
-            save_images(samples[:image_frame_dim * image_frame_dim, :, :, :],
-                        [image_frame_dim, image_frame_dim],
+            tot_num_samples = self.sample_num
+            manifold_h = int(np.floor(np.sqrt(tot_num_samples)))
+            manifold_w = int(np.floor(np.sqrt(tot_num_samples)))
+
+            save_images(samples[:manifold_h * manifold_h, :, :, :],
+                        [manifold_h, manifold_h],
                         result_dir + '/' + self.model_name + '_test_{}.png'.format(i))

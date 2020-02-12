@@ -45,6 +45,10 @@ def parse_args():
     parser.add_argument('--sample_dir', type=str, default='samples',
                         help='Directory name to save the samples on training')
 
+    # data augmentation
+    parser.add_argument('--crop_pos', type=str, default='center', help='Cropping position: center or random' )
+
+
     return check_args(parser.parse_args())
 
 """checking arguments"""
@@ -83,7 +87,7 @@ def main():
       exit()
 
     # open session
-    with tf.Session(config=tf.ConfigProto(allow_soft_placement=True)) as sess:
+    with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(allow_soft_placement=True)) as sess:
         gan = SAGAN(sess, args)
 
         # build graph

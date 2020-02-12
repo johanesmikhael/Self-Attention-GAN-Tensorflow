@@ -16,7 +16,7 @@ weight_regularizer_fully = None
 ##################################################################################
 
 def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True, sn=False, scope='conv_0'):
-    with tf.variable_scope(scope):
+    with tf.compat.v1.variable_scope(scope):
         if pad > 0:
             h = x.get_shape().as_list()[1]
             if h % stride == 0:
@@ -30,21 +30,21 @@ def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True,
             pad_right = pad - pad_left
 
             if pad_type == 'zero':
-                x = tf.pad(x, [[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]])
+                x = tf.pad(tensor=x, paddings=[[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]])
             if pad_type == 'reflect':
-                x = tf.pad(x, [[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]], mode='REFLECT')
+                x = tf.pad(tensor=x, paddings=[[0, 0], [pad_top, pad_bottom], [pad_left, pad_right], [0, 0]], mode='REFLECT')
 
         if sn:
-            w = tf.get_variable("kernel", shape=[kernel, kernel, x.get_shape()[-1], channels], initializer=weight_init,
+            w = tf.compat.v1.get_variable("kernel", shape=[kernel, kernel, x.get_shape()[-1], channels], initializer=weight_init,
                                 regularizer=weight_regularizer)
-            x = tf.nn.conv2d(input=x, filter=spectral_norm(w),
+            x = tf.nn.conv2d(input=x, filters=spectral_norm(w),
                              strides=[1, stride, stride, 1], padding='VALID')
             if use_bias:
-                bias = tf.get_variable("bias", [channels], initializer=tf.constant_initializer(0.0))
+                bias = tf.compat.v1.get_variable("bias", [channels], initializer=tf.compat.v1.constant_initializer(0.0))
                 x = tf.nn.bias_add(x, bias)
 
         else:
-            x = tf.layers.conv2d(inputs=x, filters=channels,
+            x = tf.compat.v1.layers.conv2d(inputs=x, filters=channels,
                                  kernel_size=kernel, kernel_initializer=weight_init,
                                  kernel_regularizer=weight_regularizer,
                                  strides=stride, use_bias=use_bias)
@@ -53,7 +53,7 @@ def conv(x, channels, kernel=4, stride=2, pad=0, pad_type='zero', use_bias=True,
 
 
 def deconv(x, channels, kernel=4, stride=2, padding='SAME', use_bias=True, sn=False, scope='deconv_0'):
-    with tf.variable_scope(scope):
+    with tf.compat.v1.variable_scope(scope):
         x_shape = x.get_shape().as_list()
 
         if padding == 'SAME':
@@ -64,17 +64,17 @@ def deconv(x, channels, kernel=4, stride=2, padding='SAME', use_bias=True, sn=Fa
                             x_shape[2] * stride + max(kernel - stride, 0), channels]
 
         if sn:
-            w = tf.get_variable("kernel", shape=[kernel, kernel, channels, x.get_shape()[-1]], initializer=weight_init,
+            w = tf.compat.v1.get_variable("kernel", shape=[kernel, kernel, channels, x.get_shape()[-1]], initializer=weight_init,
                                 regularizer=weight_regularizer)
-            x = tf.nn.conv2d_transpose(x, filter=spectral_norm(w), output_shape=output_shape,
+            x = tf.nn.conv2d_transpose(x, filters=spectral_norm(w), output_shape=output_shape,
                                        strides=[1, stride, stride, 1], padding=padding)
 
             if use_bias:
-                bias = tf.get_variable("bias", [channels], initializer=tf.constant_initializer(0.0))
+                bias = tf.compat.v1.get_variable("bias", [channels], initializer=tf.compat.v1.constant_initializer(0.0))
                 x = tf.nn.bias_add(x, bias)
 
         else:
-            x = tf.layers.conv2d_transpose(inputs=x, filters=channels,
+            x = tf.compat.v1.layers.conv2d_transpose(inputs=x, filters=channels,
                                            kernel_size=kernel, kernel_initializer=weight_init,
                                            kernel_regularizer=weight_regularizer,
                                            strides=stride, padding=padding, use_bias=use_bias)
@@ -82,31 +82,31 @@ def deconv(x, channels, kernel=4, stride=2, padding='SAME', use_bias=True, sn=Fa
         return x
 
 def fully_connected(x, units, use_bias=True, sn=False, scope='linear'):
-    with tf.variable_scope(scope):
+    with tf.compat.v1.variable_scope(scope):
         x = flatten(x)
         shape = x.get_shape().as_list()
         channels = shape[-1]
 
         if sn:
-            w = tf.get_variable("kernel", [channels, units], tf.float32,
+            w = tf.compat.v1.get_variable("kernel", [channels, units], tf.float32,
                                 initializer=weight_init, regularizer=weight_regularizer_fully)
             if use_bias:
-                bias = tf.get_variable("bias", [units],
-                                       initializer=tf.constant_initializer(0.0))
+                bias = tf.compat.v1.get_variable("bias", [units],
+                                       initializer=tf.compat.v1.constant_initializer(0.0))
 
                 x = tf.matmul(x, spectral_norm(w)) + bias
             else:
                 x = tf.matmul(x, spectral_norm(w))
 
         else:
-            x = tf.layers.dense(x, units=units, kernel_initializer=weight_init,
+            x = tf.compat.v1.layers.dense(x, units=units, kernel_initializer=weight_init,
                                 kernel_regularizer=weight_regularizer_fully,
                                 use_bias=use_bias)
 
         return x
 
 def flatten(x) :
-    return tf.layers.flatten(x)
+    return tf.compat.v1.layers.flatten(x)
 
 def hw_flatten(x) :
     return tf.reshape(x, shape=[x.shape[0], -1, x.shape[-1]])
@@ -116,32 +116,32 @@ def hw_flatten(x) :
 ##################################################################################
 
 def up_resblock(x_init, channels, use_bias=True, is_training=True, sn=False, scope='resblock'):
-    with tf.variable_scope(scope):
-        with tf.variable_scope('res1'):
+    with tf.compat.v1.variable_scope(scope):
+        with tf.compat.v1.variable_scope('res1'):
             x = batch_norm(x_init, is_training)
             x = relu(x)
             x = up_sample(x, scale_factor=2)
             x = conv(x, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=False, sn=sn)
 
-        with tf.variable_scope('res2'):
+        with tf.compat.v1.variable_scope('res2'):
             x = batch_norm(x, is_training)
             x = relu(x)
             x = conv(x, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias, sn=sn)
 
-        with tf.variable_scope('shortcut'):
+        with tf.compat.v1.variable_scope('shortcut'):
             x_init = up_sample(x_init, scale_factor=2)
             x_init = conv(x_init, channels, kernel=1, stride=1, use_bias=False, sn=sn)
 
         return x + x_init
 
 def down_resblock(x_init, channels, to_down=True, use_bias=True, sn=False, scope='resblock'):
-    with tf.variable_scope(scope):
+    with tf.compat.v1.variable_scope(scope):
         init_channel = x_init.shape.as_list()[-1]
-        with tf.variable_scope('res1'):
+        with tf.compat.v1.variable_scope('res1'):
             x = lrelu(x_init, 0.2)
             x = conv(x, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias, sn=sn)
 
-        with tf.variable_scope('res2'):
+        with tf.compat.v1.variable_scope('res2'):
             x = lrelu(x, 0.2)
             x = conv(x, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias, sn=sn)
 
@@ -149,7 +149,7 @@ def down_resblock(x_init, channels, to_down=True, use_bias=True, sn=False, scope
                 x = down_sample(x)
 
         if to_down or init_channel != channels :
-            with tf.variable_scope('shortcut'):
+            with tf.compat.v1.variable_scope('shortcut'):
                 x_init = conv(x_init, channels, kernel=1, stride=1, use_bias=use_bias, sn=sn)
                 if to_down :
                     x_init = down_sample(x_init)
@@ -158,16 +158,16 @@ def down_resblock(x_init, channels, to_down=True, use_bias=True, sn=False, scope
         return x + x_init
 
 def init_down_resblock(x_init, channels, use_bias=True, sn=False, scope='resblock'):
-    with tf.variable_scope(scope):
-        with tf.variable_scope('res1'):
+    with tf.compat.v1.variable_scope(scope):
+        with tf.compat.v1.variable_scope('res1'):
             x = conv(x_init, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias, sn=sn)
             x = lrelu(x, 0.2)
 
-        with tf.variable_scope('res2'):
+        with tf.compat.v1.variable_scope('res2'):
             x = conv(x, channels, kernel=3, stride=1, pad=1, pad_type='reflect', use_bias=use_bias, sn=sn)
             x = down_sample(x)
 
-        with tf.variable_scope('shortcut'):
+        with tf.compat.v1.variable_scope('shortcut'):
             x_init = down_sample(x_init)
             x_init = conv(x_init, channels, kernel=1, stride=1, use_bias=use_bias, sn=sn)
 
@@ -178,25 +178,25 @@ def init_down_resblock(x_init, channels, use_bias=True, sn=False, scope='resbloc
 ##################################################################################
 
 def global_avg_pooling(x):
-    gap = tf.reduce_mean(x, axis=[1, 2])
+    gap = tf.reduce_mean(input_tensor=x, axis=[1, 2])
 
     return gap
 
 def global_sum_pooling(x) :
-    gsp = tf.reduce_sum(x, axis=[1, 2])
+    gsp = tf.reduce_sum(input_tensor=x, axis=[1, 2])
 
     return gsp
 
 def up_sample(x, scale_factor=2):
     _, h, w, _ = x.get_shape().as_list()
     new_size = [h * scale_factor, w * scale_factor]
-    return tf.image.resize_nearest_neighbor(x, size=new_size)
+    return tf.image.resize(x, size=new_size, method=tf.image.ResizeMethod.NEAREST_NEIGHBOR)
 
 def down_sample(x):
-    return tf.layers.average_pooling2d(x, pool_size=2, strides=2, padding='SAME')
+    return tf.compat.v1.layers.average_pooling2d(x, pool_size=2, strides=2, padding='SAME')
 
 def max_pooling(x) :
-    return tf.layers.max_pooling2d(x, pool_size=2, strides=2, padding='SAME')
+    return tf.compat.v1.layers.max_pooling2d(x, pool_size=2, strides=2, padding='SAME')
 
 ##################################################################################
 # Activation function
@@ -227,7 +227,7 @@ def spectral_norm(w, iteration=1):
     w_shape = w.shape.as_list()
     w = tf.reshape(w, [-1, w_shape[-1]])
 
-    u = tf.get_variable("u", [1, w_shape[-1]], initializer=tf.random_normal_initializer(), trainable=False)
+    u = tf.compat.v1.get_variable("u", [1, w_shape[-1]], initializer=tf.compat.v1.random_normal_initializer(), trainable=False)
 
     u_hat = u
     v_hat = None
@@ -236,7 +236,7 @@ def spectral_norm(w, iteration=1):
         power iteration
         Usually iteration = 1 will be enough
         """
-        v_ = tf.matmul(u_hat, tf.transpose(w))
+        v_ = tf.matmul(u_hat, tf.transpose(a=w))
         v_hat = tf.nn.l2_normalize(v_)
 
         u_ = tf.matmul(v_hat, w)
@@ -245,7 +245,7 @@ def spectral_norm(w, iteration=1):
     u_hat = tf.stop_gradient(u_hat)
     v_hat = tf.stop_gradient(v_hat)
 
-    sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(u_hat))
+    sigma = tf.matmul(tf.matmul(v_hat, w), tf.transpose(a=u_hat))
 
     with tf.control_dependencies([u.assign(u_hat)]):
         w_norm = w / sigma
@@ -262,20 +262,20 @@ def discriminator_loss(loss_func, real, fake):
     fake_loss = 0
 
     if loss_func.__contains__('wgan') :
-        real_loss = -tf.reduce_mean(real)
-        fake_loss = tf.reduce_mean(fake)
+        real_loss = -tf.reduce_mean(input_tensor=real)
+        fake_loss = tf.reduce_mean(input_tensor=fake)
 
     if loss_func == 'lsgan' :
-        real_loss = tf.reduce_mean(tf.squared_difference(real, 1.0))
-        fake_loss = tf.reduce_mean(tf.square(fake))
+        real_loss = tf.reduce_mean(input_tensor=tf.math.squared_difference(real, 1.0))
+        fake_loss = tf.reduce_mean(input_tensor=tf.square(fake))
 
     if loss_func == 'gan' or loss_func == 'dragan' :
-        real_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(real), logits=real))
-        fake_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(fake), logits=fake))
+        real_loss = tf.reduce_mean(input_tensor=tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(real), logits=real))
+        fake_loss = tf.reduce_mean(input_tensor=tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(fake), logits=fake))
 
     if loss_func == 'hinge' :
-        real_loss = tf.reduce_mean(relu(1.0 - real))
-        fake_loss = tf.reduce_mean(relu(1.0 + fake))
+        real_loss = tf.reduce_mean(input_tensor=relu(1.0 - real))
+        fake_loss = tf.reduce_mean(input_tensor=relu(1.0 + fake))
 
     loss = real_loss + fake_loss
 
@@ -285,16 +285,16 @@ def generator_loss(loss_func, fake):
     fake_loss = 0
 
     if loss_func.__contains__('wgan') :
-        fake_loss = -tf.reduce_mean(fake)
+        fake_loss = -tf.reduce_mean(input_tensor=fake)
 
     if loss_func == 'lsgan' :
-        fake_loss = tf.reduce_mean(tf.squared_difference(fake, 1.0))
+        fake_loss = tf.reduce_mean(input_tensor=tf.math.squared_difference(fake, 1.0))
 
     if loss_func == 'gan' or loss_func == 'dragan' :
-        fake_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(fake), logits=fake))
+        fake_loss = tf.reduce_mean(input_tensor=tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(fake), logits=fake))
 
     if loss_func == 'hinge' :
-        fake_loss = -tf.reduce_mean(fake)
+        fake_loss = -tf.reduce_mean(input_tensor=fake)
 
     loss = fake_loss
 
